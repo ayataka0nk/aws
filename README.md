@@ -28,3 +28,6 @@ CIDR ブロックや Private IP アドレスを直接指定しないこと。
   - SessionManagerPlugin のインストール
     - https://docs.aws.amazon.com/systems-manager/latest/userguide/install-plugin-debian-and-ubuntu.html
 
+### 後付けすると死ぬこと。
+
+後からmaxAzsいじるとコンフリクト起こして勝手に死ぬので最初から2か3。

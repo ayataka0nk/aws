@@ -1,7 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
-
+import * as rds from "aws-cdk-lib/aws-rds";
 export class AwsStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
@@ -12,7 +12,7 @@ export class AwsStack extends cdk.Stack {
     const vpc = new ec2.Vpc(this, "DefaultVPC", {
       vpcName: "default-vpc",
       ipAddresses: ec2.IpAddresses.cidr("172.16.0.0/16"),
-      maxAzs: 1, // 指定しないとデフォルト値が3なので、最大3つ作られてしまう。
+      maxAzs: 2,
       subnetConfiguration: [
         {
           cidrMask: 24,
@@ -22,6 +22,11 @@ export class AwsStack extends cdk.Stack {
         {
           cidrMask: 24,
           name: "PrivateMain",
+          subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+        },
+        {
+          cidrMask: 24,
+          name: "Rds",
           subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
         },
       ],
@@ -38,12 +43,16 @@ export class AwsStack extends cdk.Stack {
     });
     sshSecurityGroup.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(22));
 
-    const ssmSecurityGroup = new ec2.SecurityGroup(this, "SSMSecurityGroup", {
-      vpc: vpc,
-      description: "Security Group for SSM",
-      allowAllOutbound: true,
-    });
-    ssmSecurityGroup.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443));
+    const bastionSecurityGroup = new ec2.SecurityGroup(
+      this,
+      "SSMSecurityGroup",
+      {
+        vpc: vpc,
+        description: "Security Group for SSM",
+        allowAllOutbound: true,
+      }
+    );
+    bastionSecurityGroup.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443));
 
     ///////////////
     // EC2 踏み台
@@ -65,6 +74,47 @@ export class AwsStack extends cdk.Stack {
       securityGroup: sshSecurityGroup,
       ssmSessionPermissions: true, // SSMによるアクセスを許可
     });
-    bastion.addSecurityGroup(ssmSecurityGroup);
+    bastion.addSecurityGroup(bastionSecurityGroup);
+
+    ///////////////
+    // RDS 共通postgres
+    ///////////////
+    const rdsSubnetGroup = new rds.SubnetGroup(this, "RdsSubnetGroup", {
+      description: "Subnet group for RDS",
+      vpc: vpc,
+      subnetGroupName: "RdsSubnetGroup",
+      vpcSubnets: {
+        subnetGroupName: "Rds",
+      },
+    });
+
+    const rdsSecurityGroup = new ec2.SecurityGroup(this, "RdsSecurityGroup", {
+      vpc: vpc,
+      description: "Security Group for RDS",
+      allowAllOutbound: true,
+    });
+    rdsSecurityGroup.addIngressRule(bastionSecurityGroup, ec2.Port.tcp(5432));
+
+    const dbUser = "postgres";
+    const dbName = "postgres";
+    const rdsCredentials = rds.Credentials.fromGeneratedSecret(dbUser);
+    const rdsInstance = new rds.DatabaseInstance(this, "PostgresInstance", {
+      engine: rds.DatabaseInstanceEngine.postgres({
+        version: rds.PostgresEngineVersion.VER_16_2,
+      }),
+      instanceType: ec2.InstanceType.of(
+        ec2.InstanceClass.T4G,
+        ec2.InstanceSize.MICRO
+      ),
+      databaseName: dbName,
+      instanceIdentifier: "common-postgres",
+      vpc: vpc,
+      credentials: rdsCredentials,
+      securityGroups: [rdsSecurityGroup],
+      subnetGroup: rdsSubnetGroup,
+      storageType: rds.StorageType.GP2,
+      allocatedStorage: 20,
+      maxAllocatedStorage: 50,
+    });
   }
 }
