@@ -170,5 +170,60 @@ export class AwsStack extends cdk.Stack {
         secretStringValue: githubActionsAccessKey.secretAccessKey,
       }
     );
+
+    ///////////////
+    // ECS
+    ///////////////
+    const cluster = new ecs.Cluster(this, "ClockworkCluster", {
+      clusterName: `ClockworkCluster`,
+      vpc: vpc,
+    });
+
+    const taskDefinition = new ecs.FargateTaskDefinition(
+      this,
+      "ClockworkTaskDefinition",
+      {
+        cpu: 1024,
+        memoryLimitMiB: 2048,
+      }
+    );
+
+    const container = taskDefinition.addContainer("ClockworkContainer", {
+      image: ecs.ContainerImage.fromEcrRepository(
+        ecrRepository,
+        "0c272af55c7700fae62b3d9cfdc8e7efeca14980"
+      ),
+      //TODO タグをパラメータストアから取得する
+    });
+    container.addPortMappings({
+      containerPort: 3000,
+      protocol: ecs.Protocol.TCP,
+    });
+    const ecsSericeSecurityGroup = new ec2.SecurityGroup(
+      this,
+      "EcsServiceSecurityGroup",
+      {
+        vpc: vpc,
+        description: "Security Group for ECS Service",
+        allowAllOutbound: true,
+      }
+    );
+    ecsSericeSecurityGroup.addIngressRule(
+      ec2.Peer.anyIpv4(),
+      ec2.Port.tcp(3000)
+    );
+    const service = new ecs.FargateService(this, "ClockworkService", {
+      cluster: cluster,
+      taskDefinition: taskDefinition,
+      securityGroups: [ecsSericeSecurityGroup],
+      capacityProviderStrategies: [
+        {
+          capacityProvider: "FARGATE_SPOT",
+          base: 1,
+          weight: 1,
+        },
+      ],
+      assignPublicIp: true,
+    });
   }
 }
