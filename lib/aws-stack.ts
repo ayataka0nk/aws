@@ -2,6 +2,9 @@ import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as rds from "aws-cdk-lib/aws-rds";
+import * as ecr from "aws-cdk-lib/aws-ecr";
+import * as iam from "aws-cdk-lib/aws-iam";
+import * as ecs from "aws-cdk-lib/aws-ecs";
 export class AwsStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
@@ -116,5 +119,56 @@ export class AwsStack extends cdk.Stack {
       allocatedStorage: 20,
       maxAllocatedStorage: 50,
     });
+
+    ///////////////
+    // ECR リポジトリ
+    ///////////////
+    const ecrRepository = new ecr.Repository(this, "EcrRepository", {
+      repositoryName: "clockwork",
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    ///////////////
+    // GithubActionsからECRにpushするためのポリシー
+    ///////////////
+    const ecrPushPolicy = new iam.Policy(this, "AWSEcrPushPolicy", {
+      statements: [
+        new iam.PolicyStatement({
+          actions: ["ecr:GetAuthorizationToken"],
+          resources: ["*"],
+        }),
+        new iam.PolicyStatement({
+          actions: [
+            "ecr:CompleteLayerUpload",
+            "ecr:UploadLayerPart",
+            "ecr:InitiateLayerUpload",
+            "ecr:BatchCheckLayerAvailability",
+            "ecr:PutImage",
+          ],
+          resources: ["*"],
+        }),
+      ],
+    });
+
+    const githubActionsUser = new iam.User(this, "GithubActionsUser", {
+      userName: "github-actions",
+    });
+    githubActionsUser.attachInlinePolicy(ecrPushPolicy);
+
+    const githubActionsAccessKey = new iam.AccessKey(
+      this,
+      "GithubActionsAccessKey",
+      {
+        user: githubActionsUser,
+      }
+    );
+
+    const secret = new cdk.aws_secretsmanager.Secret(
+      this,
+      "GithubActionSecret",
+      {
+        secretStringValue: githubActionsAccessKey.secretAccessKey,
+      }
+    );
   }
 }
