@@ -5,6 +5,7 @@ import * as rds from "aws-cdk-lib/aws-rds";
 import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as ecs from "aws-cdk-lib/aws-ecs";
+import { ApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 export class AwsStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
@@ -224,6 +225,42 @@ export class AwsStack extends cdk.Stack {
         },
       ],
       assignPublicIp: true,
+    });
+
+    ///////////////
+    // ALB
+    ///////////////
+    const albSecurityGroup = new ec2.SecurityGroup(this, "AlbSecurityGroup", {
+      vpc: vpc,
+      description: "Security Group for ALB",
+    });
+    albSecurityGroup.addIngressRule(
+      ec2.Peer.anyIpv4(),
+      ec2.Port.tcp(80),
+      "Allow HTTP traffic"
+    );
+    albSecurityGroup.addEgressRule(
+      ecsSericeSecurityGroup,
+      ec2.Port.tcp(3000),
+      "Allow HTTP traffic"
+    );
+    ecsSericeSecurityGroup.addIngressRule(
+      albSecurityGroup,
+      ec2.Port.tcp(3000),
+      "Allow HTTP traffic"
+    );
+    const alb = new ApplicationLoadBalancer(this, "ClorkworkLoadBalancer", {
+      vpc,
+      internetFacing: true,
+      securityGroup: albSecurityGroup,
+    });
+    const listener = alb.addListener("Listener", {
+      port: 80,
+      open: true,
+    });
+    listener.addTargets("EcsService", {
+      port: 80,
+      targets: [service],
     });
   }
 }
