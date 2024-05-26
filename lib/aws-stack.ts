@@ -5,6 +5,7 @@ import * as rds from "aws-cdk-lib/aws-rds";
 import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as ecs from "aws-cdk-lib/aws-ecs";
+import * as route53 from "aws-cdk-lib/aws-route53";
 import { ApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2";
 export class AwsStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -231,15 +232,11 @@ export class AwsStack extends cdk.Stack {
     const albSecurityGroup = new ec2.SecurityGroup(this, "AlbSecurityGroup", {
       vpc: vpc,
       description: "Security Group for ALB",
+      allowAllOutbound: true,
     });
     albSecurityGroup.addIngressRule(
       ec2.Peer.anyIpv4(),
       ec2.Port.tcp(80),
-      "Allow HTTP traffic"
-    );
-    albSecurityGroup.addEgressRule(
-      ecsSericeSecurityGroup,
-      ec2.Port.tcp(3000),
       "Allow HTTP traffic"
     );
     ecsSericeSecurityGroup.addIngressRule(
@@ -259,6 +256,21 @@ export class AwsStack extends cdk.Stack {
     listener.addTargets("EcsService", {
       port: 80,
       targets: [service],
+    });
+
+    ///////////////
+    // Route53
+    ///////////////
+    const hostedZone = route53.HostedZone.fromLookup(this, "HostedZone", {
+      domainName: "ayataka0nk.com",
+    });
+    const aRecord = new route53.ARecord(this, "ARecord", {
+      zone: hostedZone,
+      recordName: "clockwork",
+      target: route53.RecordTarget.fromAlias(
+        new cdk.aws_route53_targets.LoadBalancerTarget(alb)
+      ),
+      ttl: cdk.Duration.minutes(5),
     });
   }
 }
