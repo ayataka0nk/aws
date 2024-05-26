@@ -209,10 +209,6 @@ export class AwsStack extends cdk.Stack {
         allowAllOutbound: true,
       }
     );
-    ecsSericeSecurityGroup.addIngressRule(
-      ec2.Peer.anyIpv4(),
-      ec2.Port.tcp(3000)
-    );
     const service = new ecs.FargateService(this, "ClockworkService", {
       cluster: cluster,
       taskDefinition: taskDefinition,
@@ -224,6 +220,8 @@ export class AwsStack extends cdk.Stack {
           weight: 1,
         },
       ],
+      // ECSからネットに接続するため。
+      // ただしIngressルールをAnyIPにせず縛る
       assignPublicIp: true,
     });
 
