@@ -7,8 +7,14 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as route53 from "aws-cdk-lib/aws-route53";
 import { ApplicationLoadBalancer } from "aws-cdk-lib/aws-elasticloadbalancingv2";
+import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
+import * as certificatemanager from "aws-cdk-lib/aws-certificatemanager";
+
+interface AwsStackProps extends cdk.StackProps {
+  certificate: certificatemanager.Certificate;
+}
 export class AwsStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props: AwsStackProps) {
     super(scope, id, props);
 
     ///////////////
@@ -235,7 +241,7 @@ export class AwsStack extends cdk.Stack {
       allowAllOutbound: true,
     });
     albSecurityGroup.addIngressRule(
-      ec2.Peer.anyIpv4(),
+      ec2.Peer.prefixList("pl-58a04531"),
       ec2.Port.tcp(80),
       "Allow HTTP traffic"
     );
@@ -259,6 +265,36 @@ export class AwsStack extends cdk.Stack {
     });
 
     ///////////////
+    // Cloudfront
+    ///////////////
+    const distribution = new cloudfront.CloudFrontWebDistribution(
+      this,
+      "WebsiteDistribution",
+      {
+        viewerCertificate: cloudfront.ViewerCertificate.fromAcmCertificate(
+          props.certificate,
+          {
+            aliases: ["clockwork.ayataka0nk.com"],
+          }
+        ),
+        priceClass: cloudfront.PriceClass.PRICE_CLASS_200,
+        originConfigs: [
+          {
+            customOriginSource: {
+              domainName: alb.loadBalancerDnsName,
+              originProtocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
+            },
+            behaviors: [
+              {
+                isDefaultBehavior: true,
+              },
+            ],
+          },
+        ],
+      }
+    );
+
+    ///////////////
     // Route53
     ///////////////
     const hostedZone = route53.HostedZone.fromLookup(this, "HostedZone", {
@@ -268,7 +304,7 @@ export class AwsStack extends cdk.Stack {
       zone: hostedZone,
       recordName: "clockwork",
       target: route53.RecordTarget.fromAlias(
-        new cdk.aws_route53_targets.LoadBalancerTarget(alb)
+        new cdk.aws_route53_targets.CloudFrontTarget(distribution)
       ),
       ttl: cdk.Duration.minutes(5),
     });

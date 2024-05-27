@@ -7,5 +7,9 @@
   "hosted-zone:account=710587538762:domainName=ayataka0nk.com:region=ap-northeast-1": {
     "Id": "/hostedzone/Z0311168RBKXKJ5V3KNK",
     "Name": "ayataka0nk.com."
+  },
+  "hosted-zone:account=710587538762:domainName=ayataka0nk.com:region=us-east-1": {
+    "Id": "/hostedzone/Z0311168RBKXKJ5V3KNK",
+    "Name": "ayataka0nk.com."
   }
 }
