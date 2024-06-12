@@ -134,6 +134,7 @@ export class AwsStack extends cdk.Stack {
     const ecrRepository = new ecr.Repository(this, "EcrRepository", {
       repositoryName: "clockwork",
       removalPolicy: cdk.RemovalPolicy.DESTROY,
+      emptyOnDelete: true
     });
 
     ///////////////

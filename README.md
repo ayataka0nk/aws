@@ -13,6 +13,12 @@ The `cdk.json` file tells the CDK Toolkit how to execute your app.
 - `npx cdk diff` compare deployed stack with current state
 - `npx cdk synth` emits the synthesized CloudFormation template
 
+## コマンド
+
+```
+npx cdk destroy --profile ayataka0nk --all
+```
+
 ## 手動で触らないこと
 
 CIDR ブロックや Private IP アドレスを直接指定しないこと。
@@ -31,3 +37,4 @@ CIDR ブロックや Private IP アドレスを直接指定しないこと。
 ### 後付けすると死ぬこと。
 
 後からmaxAzsいじるとコンフリクト起こして勝手に死ぬので最初から2か3。
+
