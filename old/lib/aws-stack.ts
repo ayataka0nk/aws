@@ -134,7 +134,7 @@ export class AwsStack extends cdk.Stack {
     const ecrRepository = new ecr.Repository(this, "EcrRepository", {
       repositoryName: "clockwork",
       removalPolicy: cdk.RemovalPolicy.DESTROY,
-      emptyOnDelete: true
+      emptyOnDelete: true,
     });
 
     ///////////////
@@ -242,6 +242,7 @@ export class AwsStack extends cdk.Stack {
       allowAllOutbound: true,
     });
     albSecurityGroup.addIngressRule(
+      // クラウドフロントからだけ許可するときのprefixList
       ec2.Peer.prefixList("pl-58a04531"),
       ec2.Port.tcp(80),
       "Allow HTTP traffic"

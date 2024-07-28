@@ -1,41 +1,70 @@
 #!/usr/bin/env node
 import "source-map-support/register";
 import * as cdk from "aws-cdk-lib";
-import { AwsStack } from "../lib/aws-stack";
-import { AcmForCloudfrontStack } from "../lib/acm-for-cloudfront-stack";
+import { CommonStack } from "../stack/common-stack";
+import { EcrStack } from "../stack/ecr-stack";
+import { CommonNetworkStack } from "../stack/common-network-stack";
+import { CommonPersistentStack } from "../stack/common-persistent-stack";
+import { AimymeServiceStack } from "../stack/aimyme-service-stack";
+import { CommonAlbStack } from "../stack/common-alb-stack";
+
 const envJP: cdk.Environment = {
   account: "710587538762",
   region: "ap-northeast-1",
 };
-const envUS: cdk.Environment = {
-  account: "710587538762",
-  region: "us-east-1",
-};
+// const envUS: cdk.Environment = {
+//   account: "710587538762",
+//   region: "us-east-1",
+// };
+
+/**
+ * 構築メモ
+ * コスト削減のため、RDSとALBを共通にする。業務ではRDSは別にすべき。
+ * あとはサービスごとに1つだけスタックを作成する。共通化は勘所をつかめるまではあまりしないでおく。
+ */
+
 const app = new cdk.App();
 
-const acmForCloudfront = new AcmForCloudfrontStack(
+const commonNetworkStack = new CommonNetworkStack(app, "CommonNetworkStack", {
+  env: envJP,
+});
+
+const commonPersistentStack = new CommonPersistentStack(
   app,
-  "AcmForCloudfrontStack",
+  "CommonPersistentStack",
+  commonNetworkStack.vpc,
   {
-    env: envUS,
-    crossRegionReferences: true,
-    hostName: "clockwork",
-    domainName: "ayataka0nk.com",
+    env: envJP,
   }
 );
 
-new AwsStack(app, "AwsStack", {
-  env: envJP,
-  crossRegionReferences: true,
-  certificate: acmForCloudfront.certificate,
-  /* If you don't specify 'env', this stack will be environment-agnostic.
-   * Account/Region-dependent features and context lookups will not work,
-   * but a single synthesized template can be deployed anywhere. */
-  /* Uncomment the next line to specialize this stack for the AWS Account
-   * and Region that are implied by the current CLI configuration. */
-  // env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
-  /* Uncomment the next line if you know exactly what Account and Region you
-   * want to deploy the stack to. */
-  // env: { account: '123456789012', region: 'us-east-1' },
-  /* For more information, see https://docs.aws.amazon.com/cdk/latest/guide/environments.html */
-});
+const commonAlbSatck = new CommonAlbStack(
+  app,
+  "CommonAlbStack",
+  commonNetworkStack.vpc,
+  {
+    env: envJP,
+  }
+);
+
+const aimymeServiceStack = new AimymeServiceStack(
+  app,
+  "AimymeServiceStack",
+  commonNetworkStack.vpc,
+  {
+    env: envJP,
+  }
+);
+
+// const ecrStack = new EcrStack(app, "EcrStack", {
+//   env: envJP,
+// });
+// const commonStack = new CommonStack(
+//   app,
+//   "CommonStack",
+//   ecrStack,
+//   commonNetworkStack.vpc,
+//   {
+//     env: envJP,
+//   }
+// );
