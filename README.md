@@ -25,9 +25,14 @@ SSMアクセス
 ```
 aws ssm start-session --target i-0edf371a493966ca8 --profile ayataka0nk
 
-aws ssm start-session --target i-0edf371a493966ca8 --profile ayataka0nk --document-name AWS-StartPortForwardingSessionToRemoteHost --parameters '{"host":["commonrdsstack-commonrdsdatabase21617e1b-al2cmy4ua9fp.cl3h3rpnzbvm.ap-northeast-1.rds.amazonaws.com"],"portNumber":["5432"],"localPortNumber":["15432"]}'
+aws ssm start-session --target i-02889977fbb64b776 --profile ayataka0nk --document-name AWS-StartPortForwardingSessionToRemoteHost --parameters '{"host":["commonpersistentstack-databaseb269d8bb-4zixm2h3fbwl.cl3h3rpnzbvm.ap-northeast-1.rds.amazonaws.com"],"portNumber":["5432"],"localPortNumber":["15432"]}'
+```
+
 ```
 sudo su
+```
+```
+aws ecr get-login-password --profile ayataka0nk | docker login --username AWS --password-stdin 710587538762.dkr.ecr.ap-northeast-1.amazonaws.com
 ```
 
 ## 手動で触らないこと
@@ -78,3 +83,8 @@ dnf install docker -y
 ```
 aws ecr get-login-password --region ap-northeast-1 --profile ayataka0nk | docker login --username AWS --password-stdin 710587538762.dkr.ecr.ap-northeast-1.amazonaws.com
 ```
+
+### TODO
+
+過去の不要になったECRのイメージの自動削除
+過去の不要になったArtifactsの自動削除

@@ -58,6 +58,15 @@ export class AimymeServiceStack extends cdk.Stack {
       );
 
     ///////////////
+    // ECR
+    ///////////////
+    const ecrRepository = new ecr.Repository(this, "AimymeEcr", {
+      repositoryName: "aimyme",
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      emptyOnDelete: true,
+    });
+
+    ///////////////
     // ECS 構築
     ///////////////
     const cluster = new ecs.Cluster(this, "AImyMeCluster", {
@@ -72,6 +81,20 @@ export class AimymeServiceStack extends cdk.Stack {
         cpu: 256,
         memoryLimitMiB: 512,
       }
+    );
+
+    // タスクがECRからイメージをpullできるようにする
+    taskDefinition.addToExecutionRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          "ecr:GetAuthorizationToken",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage",
+        ],
+        resources: ["*"],
+      })
     );
 
     const secret = secretsmanager.Secret.fromSecretNameV2(
@@ -159,15 +182,6 @@ export class AimymeServiceStack extends cdk.Stack {
     });
 
     ///////////////
-    // ECR
-    ///////////////
-    const ecrRepository = new ecr.Repository(this, "AimymeEcr", {
-      repositoryName: "aimyme",
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      emptyOnDelete: true,
-    });
-
-    ///////////////
     // Pipeline
     ///////////////
     // これDockerfileをビルドしてpushするだけなら全プロジェクト共通だからさすがに共通化してよいのでは…？
@@ -221,6 +235,8 @@ export class AimymeServiceStack extends cdk.Stack {
               "echo Build completed on `date`",
               "echo Pushing the Docker image...",
               "docker push $ECR_REPO_URI:$CODEBUILD_RESOLVED_SOURCE_VERSION",
+              // ECSデプロイのためのimagedefinitions.jsonを出力
+              'echo \'[{"name":"\'$CONTAINER_NAME\'","imageUri":"\'$ECR_REPO_URI:$CODEBUILD_RESOLVED_SOURCE_VERSION\'"}]\' > imagedefinitions.json',
             ],
           },
         },
@@ -229,7 +245,11 @@ export class AimymeServiceStack extends cdk.Stack {
             ACCOUNT_ID: cdk.Stack.of(this).account,
             AWS_DEFAULT_REGION: cdk.Stack.of(this).region,
             ECR_REPO_URI: ecrRepository.repositoryUri,
+            CONTAINER_NAME: container.containerName,
           },
+        },
+        artifacts: {
+          files: ["imagedefinitions.json"],
         },
       }),
     });
@@ -260,6 +280,7 @@ export class AimymeServiceStack extends cdk.Stack {
     // CodePipelineにECSデプロイの権限を付与
     const pipelineRole = pipeline.role;
     pipelineRole.addManagedPolicy(
+      // https://docs.aws.amazon.com/ja_jp/aws-managed-policy/latest/reference/AWSCodePipeline_FullAccess.html
       iam.ManagedPolicy.fromAwsManagedPolicyName("AWSCodePipeline_FullAccess")
     );
   }
