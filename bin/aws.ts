@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 import "source-map-support/register";
 import * as cdk from "aws-cdk-lib";
-import { CommonStack } from "../stack/common-stack";
-import { EcrStack } from "../stack/ecr-stack";
 import { CommonNetworkStack } from "../stack/common-network-stack";
 import { CommonPersistentStack } from "../stack/common-persistent-stack";
 import { AimymeServiceStack } from "../stack/aimyme-service-stack";

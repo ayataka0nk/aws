@@ -6,6 +6,8 @@ import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as elb from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import * as route53 from "aws-cdk-lib/aws-route53";
 import * as targets from "aws-cdk-lib/aws-route53-targets";
+import * as certificatemanager from "aws-cdk-lib/aws-certificatemanager";
+
 import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as codepipeline from "aws-cdk-lib/aws-codepipeline";
 
@@ -17,6 +19,12 @@ export class AimymeServiceStack extends cdk.Stack {
     props?: cdk.StackProps
   ) {
     super(scope, id, props);
+    const domainName = "ayataka0nk.com";
+    const subDomainName = "aimyme";
+    const fullDomainName = `${subDomainName}.${domainName}`;
+    const hostedZone = route53.HostedZone.fromLookup(this, "HostedZone", {
+      domainName: domainName,
+    });
 
     const albSecurityGroup = ec2.SecurityGroup.fromSecurityGroupId(
       this,
@@ -24,16 +32,15 @@ export class AimymeServiceStack extends cdk.Stack {
       cdk.Fn.importValue("CommonAlbSecurityGroupId")
     );
 
-    const albHttpListener =
+    const albHttpsListener =
       elb.ApplicationListener.fromApplicationListenerAttributes(
         this,
-        "AlbHttpListener",
+        "AlbHttpsListener",
         {
-          listenerArn: cdk.Fn.importValue("CommonAlbHttpListenerArn"),
+          listenerArn: cdk.Fn.importValue("CommonAlbHttpsListenerArn"),
           securityGroup: albSecurityGroup,
         }
       );
-
     const alb =
       elb.ApplicationLoadBalancer.fromApplicationLoadBalancerAttributes(
         this,
@@ -60,8 +67,8 @@ export class AimymeServiceStack extends cdk.Stack {
       this,
       "AImyMeTaskDefinition",
       {
-        cpu: 1024,
-        memoryLimitMiB: 2048,
+        cpu: 256,
+        memoryLimitMiB: 512,
       }
     );
 
@@ -80,6 +87,7 @@ export class AimymeServiceStack extends cdk.Stack {
       },
     });
     container.addPortMappings({
+      // コンテナ内では常に80番で待ち受けるようDockerfileを書く
       containerPort: 80,
       protocol: ecs.Protocol.TCP,
     });
@@ -121,6 +129,7 @@ export class AimymeServiceStack extends cdk.Stack {
       "AimymeTargetGroup",
       {
         vpc: vpc,
+        // 指定したサービスの80番ポートに流す
         port: 80,
         protocol: elb.ApplicationProtocol.HTTP,
         targets: [service],
@@ -130,18 +139,15 @@ export class AimymeServiceStack extends cdk.Stack {
         },
       }
     );
-    albHttpListener.addAction("AimymeAction", {
+
+    // HTTPSを受け付けてターゲットグループに流す
+    albHttpsListener.addAction("AimymeAction", {
       priority: 1,
-      conditions: [
-        elb.ListenerCondition.hostHeaders(["aimyme.ayataka0nk.com"]),
-      ],
+      conditions: [elb.ListenerCondition.hostHeaders([fullDomainName])],
       action: elb.ListenerAction.forward([albTargetGroup]),
     });
 
-    const hostedZone = route53.HostedZone.fromLookup(this, "HostedZone", {
-      domainName: "ayataka0nk.com",
-    });
-
+    // ドメインレコード設定
     new route53.ARecord(this, "AimymeARecord", {
       zone: hostedZone,
       recordName: "aimyme",
@@ -149,6 +155,7 @@ export class AimymeServiceStack extends cdk.Stack {
         new targets.LoadBalancerTarget(alb)
       ),
     });
+
     ///////////////
     // ECR
     ///////////////
