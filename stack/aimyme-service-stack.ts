@@ -6,10 +6,12 @@ import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as elb from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import * as route53 from "aws-cdk-lib/aws-route53";
 import * as targets from "aws-cdk-lib/aws-route53-targets";
-import * as certificatemanager from "aws-cdk-lib/aws-certificatemanager";
 
 import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as codepipeline from "aws-cdk-lib/aws-codepipeline";
+import * as codepipeline_actions from "aws-cdk-lib/aws-codepipeline-actions";
+import * as codebuild from "aws-cdk-lib/aws-codebuild";
+import * as iam from "aws-cdk-lib/aws-iam";
 
 export class AimymeServiceStack extends cdk.Stack {
   constructor(
@@ -159,30 +161,106 @@ export class AimymeServiceStack extends cdk.Stack {
     ///////////////
     // ECR
     ///////////////
-    // const repository = new ecr.Repository(this, "AimymeEcr", {
-    //   repositoryName: "aimyme",
-    //   removalPolicy: cdk.RemovalPolicy.DESTROY,
-    //   emptyOnDelete: true,
-    // });
+    const ecrRepository = new ecr.Repository(this, "AimymeEcr", {
+      repositoryName: "aimyme",
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      emptyOnDelete: true,
+    });
 
     ///////////////
     // Pipeline
     ///////////////
+    // これDockerfileをビルドしてpushするだけなら全プロジェクト共通だからさすがに共通化してよいのでは…？
 
-    // const githubSecret = secretsmanager.Secret.fromSecretNameV2(
-    //   this,
-    //   "GitHubToken",
-    //   "github"
-    // );
+    const githubSecret = secretsmanager.Secret.fromSecretNameV2(
+      this,
+      "GitHubToken",
+      "github"
+    );
 
-    // const githubAccessToken = githubSecret
-    //   .secretValueFromJson("ACCESS_TOKEN")
-    //   .unsafeUnwrap();
+    const githubAccessToken = githubSecret.secretValueFromJson("ACCESS_TOKEN");
 
-    // const pipeline = new codepipeline.Pipeline(this, "AimymePipeline", {
-    //   pipelineName: "AimymePipeline",
-    // });
+    const pipeline = new codepipeline.Pipeline(this, "AimymePipeline");
+    const sourceOutput = new codepipeline.Artifact();
+    const sourceAction = new codepipeline_actions.GitHubSourceAction({
+      actionName: "GitHub_Source",
+      owner: "ayataka0nk",
+      repo: "aimyme",
+      branch: "main",
+      oauthToken: githubAccessToken,
+      output: sourceOutput,
+    });
+    pipeline.addStage({
+      stageName: "Source",
+      actions: [sourceAction],
+    });
 
-    // const sourceOutput = new codepipeline.Artifact();
+    const buildProject = new codebuild.PipelineProject(this, "AimymeBuild", {
+      environment: {
+        buildImage: codebuild.LinuxBuildImage.STANDARD_5_0,
+        privileged: true,
+      },
+      buildSpec: codebuild.BuildSpec.fromObject({
+        version: "0.2",
+        phases: {
+          pre_build: {
+            commands: [
+              "echo Logging in to Amazon ECR...",
+              "aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com",
+            ],
+          },
+          build: {
+            commands: [
+              "echo Build started on `date`",
+              "echo Building the Docker image...",
+              "docker build -t $ECR_REPO_URI:$CODEBUILD_RESOLVED_SOURCE_VERSION .",
+            ],
+          },
+          post_build: {
+            commands: [
+              "echo Build completed on `date`",
+              "echo Pushing the Docker image...",
+              "docker push $ECR_REPO_URI:$CODEBUILD_RESOLVED_SOURCE_VERSION",
+            ],
+          },
+        },
+        env: {
+          variables: {
+            ACCOUNT_ID: cdk.Stack.of(this).account,
+            AWS_DEFAULT_REGION: cdk.Stack.of(this).region,
+            ECR_REPO_URI: ecrRepository.repositoryUri,
+          },
+        },
+      }),
+    });
+    const buildOutput = new codepipeline.Artifact();
+    const buildAction = new codepipeline_actions.CodeBuildAction({
+      actionName: "Build",
+      project: buildProject,
+      input: sourceOutput,
+      outputs: [buildOutput],
+    });
+    pipeline.addStage({
+      stageName: "Build",
+      actions: [buildAction],
+    });
+
+    ecrRepository.grantPullPush(buildProject);
+
+    const deployAction = new codepipeline_actions.EcsDeployAction({
+      actionName: "DeployToECS",
+      service: service,
+      imageFile: buildOutput.atPath("imagedefinitions.json"),
+    });
+    pipeline.addStage({
+      stageName: "Deploy",
+      actions: [deployAction],
+    });
+
+    // CodePipelineにECSデプロイの権限を付与
+    const pipelineRole = pipeline.role;
+    pipelineRole.addManagedPolicy(
+      iam.ManagedPolicy.fromAwsManagedPolicyName("AWSCodePipeline_FullAccess")
+    );
   }
 }
