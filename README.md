@@ -86,5 +86,6 @@ aws ecr get-login-password --region ap-northeast-1 --profile ayataka0nk | docker
 
 ### TODO
 
+マイグレーションの自動実行
 過去の不要になったECRのイメージの自動削除
 過去の不要になったArtifactsの自動削除
