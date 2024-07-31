@@ -195,6 +195,10 @@ export class AimymeServiceStack extends cdk.Stack {
     const githubAccessToken = githubSecret.secretValueFromJson("ACCESS_TOKEN");
 
     const pipeline = new codepipeline.Pipeline(this, "AimymePipeline");
+
+    ///////////////
+    // Source Stage
+    ///////////////
     const sourceOutput = new codepipeline.Artifact();
     const sourceAction = new codepipeline_actions.GitHubSourceAction({
       actionName: "GitHub_Source",
@@ -209,6 +213,12 @@ export class AimymeServiceStack extends cdk.Stack {
       actions: [sourceAction],
     });
 
+    ///////////////
+    // Build Stage
+    // Dockerなら共通だから、共通化できそう？
+    // でもmigrationの仕方は違うパターンもありそう。例えばLaravelなら共通のイメージでマイグレーションも走らせるだろうし。
+    // でも違うイメージで走らせるで統一したほうが、センスは良さそう。
+    ///////////////
     const buildProject = new codebuild.PipelineProject(this, "AimymeBuild", {
       environment: {
         buildImage: codebuild.LinuxBuildImage.STANDARD_5_0,
@@ -227,7 +237,8 @@ export class AimymeServiceStack extends cdk.Stack {
             commands: [
               "echo Build started on `date`",
               "echo Building the Docker image...",
-              "docker build -t $ECR_REPO_URI:$CODEBUILD_RESOLVED_SOURCE_VERSION .",
+              "docker build --target migration -t $ECR_REPO_URI:migration-$CODEBUILD_RESOLVED_SOURCE_VERSION .",
+              "docker build --target production -t $ECR_REPO_URI:$CODEBUILD_RESOLVED_SOURCE_VERSION .",
             ],
           },
           post_build: {
@@ -235,6 +246,7 @@ export class AimymeServiceStack extends cdk.Stack {
               "echo Build completed on `date`",
               "echo Pushing the Docker image...",
               "docker push $ECR_REPO_URI:$CODEBUILD_RESOLVED_SOURCE_VERSION",
+              "docker push $ECR_REPO_URI:migration-$CODEBUILD_RESOLVED_SOURCE_VERSION",
               // ECSデプロイのためのimagedefinitions.jsonを出力
               'echo \'[{"name":"\'$CONTAINER_NAME\'","imageUri":"\'$ECR_REPO_URI:$CODEBUILD_RESOLVED_SOURCE_VERSION\'"}]\' > imagedefinitions.json',
             ],
@@ -264,9 +276,62 @@ export class AimymeServiceStack extends cdk.Stack {
       stageName: "Build",
       actions: [buildAction],
     });
-
     ecrRepository.grantPullPush(buildProject);
 
+    ///////////////
+    // Migration Stage
+    ///////////////
+    const migrationProject = new codebuild.PipelineProject(
+      this,
+      "AimymeMigration",
+      {
+        environment: {
+          buildImage: codebuild.LinuxBuildImage.STANDARD_5_0,
+          privileged: true,
+        },
+        environmentVariables: {
+          ACCOUNT_ID: { value: cdk.Stack.of(this).account },
+          AWS_DEFAULT_REGION: { value: cdk.Stack.of(this).region },
+          ECR_REPO_URI: { value: ecrRepository.repositoryUri },
+          DATABASE_URL: {
+            type: codebuild.BuildEnvironmentVariableType.SECRETS_MANAGER,
+            value: `${secret.secretArn}:DATABASE_URL`,
+          },
+        },
+        buildSpec: codebuild.BuildSpec.fromObject({
+          version: "0.2",
+          phases: {
+            pre_build: {
+              commands: [
+                "echo Logging in to Amazon ECR...",
+                "aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com",
+              ],
+            },
+            build: {
+              commands: [
+                "echo Running migrations...",
+                "docker run --rm -e DATABASE_URL=$DATABASE_URL $ECR_REPO_URI:migration-$CODEBUILD_RESOLVED_SOURCE_VERSION",
+              ],
+            },
+          },
+        }),
+      }
+    );
+    secret.grantRead(migrationProject);
+    const migrationAction = new codepipeline_actions.CodeBuildAction({
+      actionName: "RunMigrations",
+      project: migrationProject,
+      input: sourceOutput,
+    });
+
+    pipeline.addStage({
+      stageName: "Migration",
+      actions: [migrationAction],
+    });
+
+    ///////////////
+    // Deploy Stage
+    ///////////////
     const deployAction = new codepipeline_actions.EcsDeployAction({
       actionName: "DeployToECS",
       service: service,
