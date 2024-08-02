@@ -12,6 +12,7 @@ import * as codepipeline from "aws-cdk-lib/aws-codepipeline";
 import * as codepipeline_actions from "aws-cdk-lib/aws-codepipeline-actions";
 import * as codebuild from "aws-cdk-lib/aws-codebuild";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as logs from "aws-cdk-lib/aws-logs";
 
 export class AimymeServiceStack extends cdk.Stack {
   constructor(
@@ -86,7 +87,6 @@ export class AimymeServiceStack extends cdk.Stack {
     // タスクがECRからイメージをpullできるようにする
     taskDefinition.addToExecutionRolePolicy(
       new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
         actions: [
           "ecr:GetAuthorizationToken",
           "ecr:BatchCheckLayerAvailability",
@@ -103,6 +103,10 @@ export class AimymeServiceStack extends cdk.Stack {
       "aimyme/prod"
     );
 
+    const logGroup = new logs.LogGroup(this, "ServiceLogGroup", {
+      logGroupName: "/ecs/aimyme",
+      retention: logs.RetentionDays.ONE_WEEK,
+    });
     const container = taskDefinition.addContainer("AImyMeContainer", {
       // ダミーイメージで作成。後段のPipeLineで正しいECRから取得する。
       image: ecs.ContainerImage.fromRegistry("amazon/amazon-ecs-sample"),
@@ -110,6 +114,10 @@ export class AimymeServiceStack extends cdk.Stack {
         DATABASE_URL: ecs.Secret.fromSecretsManager(secret, "DATABASE_URL"),
         OPENAI_API_KEY: ecs.Secret.fromSecretsManager(secret, "OPENAI_API_KEY"),
       },
+      logging: ecs.LogDrivers.awsLogs({
+        streamPrefix: "aimyme",
+        logGroup: logGroup,
+      }),
     });
     container.addPortMappings({
       // コンテナ内では常に80番で待ち受けるようDockerfileを書く
@@ -219,6 +227,7 @@ export class AimymeServiceStack extends cdk.Stack {
     // でもmigrationの仕方は違うパターンもありそう。例えばLaravelなら共通のイメージでマイグレーションも走らせるだろうし。
     // でも違うイメージで走らせるで統一したほうが、センスは良さそう。
     ///////////////
+
     const buildProject = new codebuild.PipelineProject(this, "AimymeBuild", {
       environment: {
         buildImage: codebuild.LinuxBuildImage.STANDARD_5_0,
@@ -237,7 +246,6 @@ export class AimymeServiceStack extends cdk.Stack {
             commands: [
               "echo Build started on `date`",
               "echo Building the Docker image...",
-              "docker build --target migration -t $ECR_REPO_URI:migration-$CODEBUILD_RESOLVED_SOURCE_VERSION .",
               "docker build --target production -t $ECR_REPO_URI:$CODEBUILD_RESOLVED_SOURCE_VERSION .",
             ],
           },
@@ -246,7 +254,6 @@ export class AimymeServiceStack extends cdk.Stack {
               "echo Build completed on `date`",
               "echo Pushing the Docker image...",
               "docker push $ECR_REPO_URI:$CODEBUILD_RESOLVED_SOURCE_VERSION",
-              "docker push $ECR_REPO_URI:migration-$CODEBUILD_RESOLVED_SOURCE_VERSION",
               // ECSデプロイのためのimagedefinitions.jsonを出力
               'echo \'[{"name":"\'$CONTAINER_NAME\'","imageUri":"\'$ECR_REPO_URI:$CODEBUILD_RESOLVED_SOURCE_VERSION\'"}]\' > imagedefinitions.json',
             ],
@@ -277,57 +284,6 @@ export class AimymeServiceStack extends cdk.Stack {
       actions: [buildAction],
     });
     ecrRepository.grantPullPush(buildProject);
-
-    ///////////////
-    // Migration Stage
-    ///////////////
-    const migrationProject = new codebuild.PipelineProject(
-      this,
-      "AimymeMigration",
-      {
-        environment: {
-          buildImage: codebuild.LinuxBuildImage.STANDARD_5_0,
-          privileged: true,
-        },
-        environmentVariables: {
-          ACCOUNT_ID: { value: cdk.Stack.of(this).account },
-          AWS_DEFAULT_REGION: { value: cdk.Stack.of(this).region },
-          ECR_REPO_URI: { value: ecrRepository.repositoryUri },
-          DATABASE_URL: {
-            type: codebuild.BuildEnvironmentVariableType.SECRETS_MANAGER,
-            value: `${secret.secretArn}:DATABASE_URL`,
-          },
-        },
-        buildSpec: codebuild.BuildSpec.fromObject({
-          version: "0.2",
-          phases: {
-            pre_build: {
-              commands: [
-                "echo Logging in to Amazon ECR...",
-                "aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com",
-              ],
-            },
-            build: {
-              commands: [
-                "echo Running migrations...",
-                "docker run --rm -e DATABASE_URL=$DATABASE_URL $ECR_REPO_URI:migration-$CODEBUILD_RESOLVED_SOURCE_VERSION",
-              ],
-            },
-          },
-        }),
-      }
-    );
-    secret.grantRead(migrationProject);
-    const migrationAction = new codepipeline_actions.CodeBuildAction({
-      actionName: "RunMigrations",
-      project: migrationProject,
-      input: sourceOutput,
-    });
-
-    pipeline.addStage({
-      stageName: "Migration",
-      actions: [migrationAction],
-    });
 
     ///////////////
     // Deploy Stage

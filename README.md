@@ -25,7 +25,7 @@ SSMアクセス
 ```
 aws ssm start-session --target i-0edf371a493966ca8 --profile ayataka0nk
 
-aws ssm start-session --target i-02889977fbb64b776 --profile ayataka0nk --document-name AWS-StartPortForwardingSessionToRemoteHost --parameters '{"host":["commonpersistentstack-databaseb269d8bb-4zixm2h3fbwl.cl3h3rpnzbvm.ap-northeast-1.rds.amazonaws.com"],"portNumber":["5432"],"localPortNumber":["15432"]}'
+aws ssm start-session --target i-0f307d049991e3103 --profile ayataka0nk --document-name AWS-StartPortForwardingSessionToRemoteHost --parameters '{"host":["commonpersistentstack-databaseb269d8bb-gnf7pzwxgs3k.cl3h3rpnzbvm.ap-northeast-1.rds.amazonaws.com"],"portNumber":["5432"],"localPortNumber":["15432"]}'
 ```
 
 ```
